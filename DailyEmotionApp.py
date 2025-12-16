@@ -194,14 +194,19 @@ def dashboard_page():
     last_checkin = history[-1]['date'][:10] if history else "No Data"
     
     # Calculate most frequent emotion
+    # Calculate most frequent emotion
     if history:
         df = pd.DataFrame(history)
         # Clean date format
         df['date'] = pd.to_datetime(df['date'])
         
-        # Dominant Emotion
-        if 'emotion' in df.columns:
-            top_emotion = df['emotion'].mode()[0]
+        # Dominant Emotion (Safe Calculation)
+        if 'emotion' in df.columns and not df['emotion'].empty:
+            mode_result = df['emotion'].mode()
+            if not mode_result.empty:
+                top_emotion = mode_result[0]
+            else:
+                top_emotion = "N/A"
         else:
             top_emotion = "N/A"
     else:
@@ -290,6 +295,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
