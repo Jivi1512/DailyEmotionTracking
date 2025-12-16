@@ -7,6 +7,7 @@ from fer import FER
 import google.generativeai as genai
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
+import plotly.express as px
 
 st.set_page_config(page_title="EmoTrack AI", layout="wide")
 
@@ -176,19 +177,80 @@ def chatbot_page():
                 st.error(f"API Error: {e}")
 
 def dashboard_page():
-    st.title(f"Dashboard: {st.session_state['user_info']['name']}")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Profile")
-        st.write(st.session_state['user_info'])
-    with col2:
-        st.subheader("History")
-        all_data = load_data(DATA_DB)
-        history = all_data.get(st.session_state['username'], [])
-        if history:
-            st.dataframe(pd.DataFrame(history))
+    # --- 1. Welcome Header ---
+    user_info = st.session_state['user_info']
+    st.title(f"Hi, {user_info['name']}!")
+    st.markdown(f"**Occupation:** {user_info.get('occupation', 'N/A')} | **Base Mood:** {user_info.get('base_mood', 'Neutral')}")
+    st.divider()
+
+    # --- 2. Load & Process Data ---
+    all_data = load_data(DATA_DB)
+    history = all_data.get(st.session_state['username'], [])
+    
+    # --- 3. Summary Metrics ---
+    col1, col2, col3 = st.columns(3)
+    
+    total_entries = len(history)
+    last_checkin = history[-1]['date'][:10] if history else "No Data"
+    
+    # Calculate most frequent emotion
+    if history:
+        df = pd.DataFrame(history)
+        # Clean date format
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # Dominant Emotion
+        if 'emotion' in df.columns:
+            top_emotion = df['emotion'].mode()[0]
         else:
-            st.write("No data.")
+            top_emotion = "N/A"
+    else:
+        top_emotion = "N/A"
+        df = pd.DataFrame()
+
+    with col1:
+        st.metric("Total Check-ins", total_entries)
+    with col2:
+        st.metric("Last Check-in", last_checkin)
+    with col3:
+        st.metric("Dominant Emotion", str(top_emotion).title())
+
+    # --- 4. Interactive Graphs ---
+    if not df.empty and 'score' in df.columns and 'emotion' in df.columns:
+        st.subheader("Your Emotional Trends")
+        
+        tab1, tab2 = st.tabs(["Timeline", "Distribution"])
+        
+        with tab1:
+            # Line Chart: Emotion Score over Time
+            fig_line = px.line(
+                df, 
+                x='date', 
+                y='score', 
+                color='emotion', 
+                markers=True,
+                title="Emotion Intensity Over Time",
+                labels={"score": "Confidence Score", "date": "Date"}
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
+            
+        with tab2:
+            # Pie Chart: Emotion Breakdown
+            fig_pie = px.pie(
+                df, 
+                names='emotion', 
+                title="Emotion Distribution",
+                hole=0.4
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+    # --- 5. Secure Profile View (Password Hidden) ---
+    with st.expander("View Personal Details"):
+        # Create a copy to avoid modifying the actual session state
+        safe_info = user_info.copy()
+        if 'password' in safe_info:
+            del safe_info['password']  # Remove password from display
+        st.table(pd.DataFrame(safe_info.items(), columns=['Field', 'Value']))
 
 def main():
     if 'logged_in' not in st.session_state:
@@ -198,21 +260,36 @@ def main():
         menu = st.sidebar.radio("Menu", ["Login", "Sign Up"])
         if menu == "Login": login_page()
         else: signup_page()
-    else:
-        st.sidebar.write(f"User: {st.session_state['username']}")
-        menu = st.sidebar.radio("Navigate", ["Dashboard", "AI Therapist", "Face Scan", "EEG/ECG", "Trends"])
-        if st.sidebar.button("Logout"):
-            st.session_state['logged_in'] = False
-            st.rerun()
+   else:
+        # --- Sidebar ---
+        with st.sidebar:
+            st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=100) # Placeholder avatar
+            st.title(f"Welcome,\n{st.session_state['user_info']['name']}")
+            st.write("---")
+            menu = st.radio("Menu", ["Dashboard", "AI Therapist", "Face Scan", "EEG/ECG", "Trends"])
             
-        if menu == "Dashboard": dashboard_page()
-        elif menu == "AI Therapist": chatbot_page()
-        elif menu == "Face Scan": face_detection_page()
-        elif menu == "EEG/ECG": st.title("EEG/ECG Tracker (Placeholder)")
-        elif menu == "Trends": st.title("Trends (Placeholder)")
+            st.write("---")
+            if st.button("Logout"):
+                st.session_state['logged_in'] = False
+                st.rerun()
+
+        # --- Page Routing ---
+        if menu == "Dashboard":
+            dashboard_page()
+        elif menu == "AI Therapist":
+            chatbot_page()
+        elif menu == "Face Scan":
+            face_detection_page()
+        elif menu == "EEG/ECG":
+            st.title("EEG /ECG Tracker")
+            st.info("Hardware integration required. Please connect your BCI device.")
+        elif menu == "📈 Trends":
+            st.title("📈 Advanced Analytics")
+            st.info("Visit the Dashboard for your current summary graphs.")
 
 if __name__ == "__main__":
 
     main()
+
 
 
