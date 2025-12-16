@@ -61,7 +61,7 @@ DATA_DB = 'data'
 
 def init_gemini(api_key):
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-1.5-flash')
+    return genai.GenerativeModel('gemini-2.0-flash-exp')
 
 # --- PAGES ---
 
@@ -214,3 +214,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
