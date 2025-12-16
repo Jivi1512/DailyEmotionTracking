@@ -5,3 +5,4 @@ pillow
 numpy
 st-gsheets-connection
 google-generativeai
+plotly
