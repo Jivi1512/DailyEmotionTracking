@@ -260,7 +260,7 @@ def main():
         menu = st.sidebar.radio("Menu", ["Login", "Sign Up"])
         if menu == "Login": login_page()
         else: signup_page()
-   else:
+    else:
         # --- Sidebar ---
         with st.sidebar:
             st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=100) # Placeholder avatar
@@ -281,7 +281,7 @@ def main():
         elif menu == "Face Scan":
             face_detection_page()
         elif menu == "EEG/ECG":
-            st.title("EEG /ECG Tracker")
+            st.title("EEG / ECG Tracker")
             st.info("Hardware integration required. Please connect your BCI device.")
         elif menu == "📈 Trends":
             st.title("📈 Advanced Analytics")
@@ -290,6 +290,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
