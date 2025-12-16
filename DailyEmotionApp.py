@@ -136,6 +136,7 @@ def face_detection_page():
 
 def chatbot_page():
     st.title("AI Therapist")
+    st.write(f"Hi {st.session_state['username']}!\n How was your day today?")
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
         api_key = st.text_input("API Key", type="password")
@@ -295,6 +296,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
