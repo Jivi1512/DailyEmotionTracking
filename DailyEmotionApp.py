@@ -184,64 +184,92 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
 @st.cache_resource
 def load_eeg_model():
     import os
-    import sys
-    from pathlib import Path
+    import tensorflow as tf
+    from tensorflow import keras
+    import json
+    import zipfile
+    import tempfile
     
-    st.write("Debugging model loading...")
+    model_path = "best_eeg_model.keras"
     
-    current_dir = os.getcwd()
-    st.write(f"Current working directory: {current_dir}")
+    if not os.path.exists(model_path):
+        st.warning("Model file not found")
+        return None
     
-    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else current_dir
-    st.write(f"Script directory: {script_dir}")
+    try:
+        st.write("Attempting standard loading...")
+        model = tf.keras.models.load_model(model_path, compile=False)
+        st.success("Model loaded successfully!")
+        return model
+    except Exception as e:
+        st.warning(f"Standard loading failed: {str(e)[:100]}")
+        st.write("Attempting compatibility fix...")
     
-    all_files = []
-    for root, dirs, files in os.walk(current_dir):
-        for file in files:
-            if file.endswith('.keras') or file.endswith('.h5'):
-                all_files.append(os.path.join(root, file))
-    
-    st.write(f"Found model files: {all_files if all_files else 'None'}")
-    
-    model_paths = [
-        "best_eeg_model.keras",
-        "./best_eeg_model.keras",
-        os.path.join(current_dir, "best_eeg_model.keras"),
-        os.path.join(script_dir, "best_eeg_model.keras"),
-        "/mount/src/dailyemotiontracking/best_eeg_model.keras",
-        str(Path(current_dir) / "best_eeg_model.keras"),
-    ]
-    
-    st.write("Checking paths:")
-    for path in model_paths:
-        exists = os.path.exists(path)
-        st.write(f"  {path}: {'EXISTS' if exists else 'NOT FOUND'}")
-    
-    for path in model_paths:
-        if os.path.exists(path):
-            try:
-                st.write(f"Attempting to load from: {path}")
-                import tensorflow as tf
-                model = tf.keras.models.load_model(path, compile=False)
-                st.success(f"Model loaded successfully from: {path}")
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extract_path = os.path.join(tmpdir, "model")
+            
+            with zipfile.ZipFile(model_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_path)
+            
+            config_path = os.path.join(extract_path, "config.json")
+            
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                
+                def fix_config(obj):
+                    if isinstance(obj, dict):
+                        if 'batch_shape' in obj:
+                            batch_shape = obj.pop('batch_shape')
+                            if batch_shape and len(batch_shape) > 1:
+                                obj['shape'] = batch_shape[1:]
+                        if 'batch_input_shape' in obj:
+                            batch_input_shape = obj.pop('batch_input_shape')
+                            if batch_input_shape and len(batch_input_shape) > 1:
+                                obj['shape'] = batch_input_shape[1:]
+                        for key, value in obj.items():
+                            obj[key] = fix_config(value)
+                    elif isinstance(obj, list):
+                        return [fix_config(item) for item in obj]
+                    return obj
+                
+                config = fix_config(config)
+                
+                with open(config_path, 'w') as f:
+                    json.dump(config, f)
+                
+                fixed_model_path = os.path.join(tmpdir, "fixed_model.keras")
+                with zipfile.ZipFile(fixed_model_path, 'w') as zip_ref:
+                    for root, dirs, files in os.walk(extract_path):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, extract_path)
+                            zip_ref.write(file_path, arcname)
+                
+                model = tf.keras.models.load_model(fixed_model_path, compile=False)
+                st.success("Model loaded with compatibility fix!")
                 return model
-            except Exception as e:
-                st.error(f"Error loading from {path}: {str(e)}")
-                continue
+            
+    except Exception as e:
+        st.error(f"Compatibility fix failed: {str(e)}")
     
-    st.warning("Model not found in any location. Running in demo mode.")
+    st.warning("Could not load model. Using demo mode.")
     return None
 
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
-    with st.expander("Model Loading Diagnostics", expanded=True):
+    with st.expander("Model Loading Status", expanded=False):
+        model = load_eeg_model()
+    
+    if model is None:
         model = load_eeg_model()
     
     if not model:
-        st.info("Running in demo mode with simulated predictions. Upload model to enable real predictions.")
+        st.info("Running in demo mode with simulated predictions.")
     else:
-        st.success("Ready to process EEG signals!")
+        st.success("Model ready! Input shape: (800, 62)")
     
     if st.button("Start Live Simulation"):
         col_graph, col_pred=st.columns([2, 1])
