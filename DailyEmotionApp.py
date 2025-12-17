@@ -184,33 +184,64 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
 @st.cache_resource
 def load_eeg_model():
     import os
-    from tensorflow.keras.models import load_model
+    import sys
+    from pathlib import Path
     
-    model_paths=[
+    st.write("Debugging model loading...")
+    
+    current_dir = os.getcwd()
+    st.write(f"Current working directory: {current_dir}")
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else current_dir
+    st.write(f"Script directory: {script_dir}")
+    
+    all_files = []
+    for root, dirs, files in os.walk(current_dir):
+        for file in files:
+            if file.endswith('.keras') or file.endswith('.h5'):
+                all_files.append(os.path.join(root, file))
+    
+    st.write(f"Found model files: {all_files if all_files else 'None'}")
+    
+    model_paths = [
         "best_eeg_model.keras",
         "./best_eeg_model.keras",
-        os.path.join(os.path.dirname(__file__), "best_eeg_model.keras")
+        os.path.join(current_dir, "best_eeg_model.keras"),
+        os.path.join(script_dir, "best_eeg_model.keras"),
+        "/mount/src/dailyemotiontracking/best_eeg_model.keras",
+        str(Path(current_dir) / "best_eeg_model.keras"),
     ]
     
+    st.write("Checking paths:")
     for path in model_paths:
-        try:
-            if os.path.exists(path):
-                return load_model(path, compile=False)
-        except Exception as e:
-            st.warning(f"Failed to load model from {path}: {str(e)}")
-            continue
+        exists = os.path.exists(path)
+        st.write(f"  {path}: {'EXISTS' if exists else 'NOT FOUND'}")
+    
+    for path in model_paths:
+        if os.path.exists(path):
+            try:
+                st.write(f"Attempting to load from: {path}")
+                import tensorflow as tf
+                model = tf.keras.models.load_model(path, compile=False)
+                st.success(f"Model loaded successfully from: {path}")
+                return model
+            except Exception as e:
+                st.error(f"Error loading from {path}: {str(e)}")
+                continue
+    
+    st.warning("Model not found in any location. Running in demo mode.")
     return None
 
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
-    model=load_eeg_model()
+    with st.expander("Model Loading Diagnostics", expanded=True):
+        model = load_eeg_model()
+    
     if not model:
-        st.warning("Model file not detected. Running in demo mode with simulated predictions.")
-        st.info("To use the actual model, ensure 'best_eeg_model.keras' is in the root directory of your repository.")
-        model=None
+        st.info("Running in demo mode with simulated predictions. Upload model to enable real predictions.")
     else:
-        st.success("Model Loaded: CNN-LSTM | Input Shape: (800, 62)")
+        st.success("Ready to process EEG signals!")
     
     if st.button("Start Live Simulation"):
         col_graph, col_pred=st.columns([2, 1])
