@@ -9,7 +9,6 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import plotly.express as px
 import tensorflow as tf
-from tensorflow.keras.models import load_model
 from scipy.signal import butter, filtfilt
 import time
 
@@ -183,10 +182,29 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     return filtfilt(b, a, signal, axis=0)
 
 @st.cache_resource
+def load_eeg_model():
+    import os
+    from tensorflow.keras.models import load_model
+    
+    model_paths=[
+        "best_eeg_model.keras",
+        "./best_eeg_model.keras",
+        os.path.join(os.path.dirname(__file__), "best_eeg_model.keras")
+    ]
+    
+    for path in model_paths:
+        try:
+            if os.path.exists(path):
+                return load_model(path, compile=False)
+        except Exception as e:
+            st.warning(f"Failed to load model from {path}: {str(e)}")
+            continue
+    return None
+
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
-    model=load_model("best_eeg_model.keras")
+    model=load_eeg_model()
     if not model:
         st.warning("Model file not detected. Running in demo mode with simulated predictions.")
         st.info("To use the actual model, ensure 'best_eeg_model.keras' is in the root directory of your repository.")
@@ -231,6 +249,7 @@ def eeg_page():
             time.sleep(0.5) 
             
         status.success("Session Complete")
+
 def ecg_page():
     st.title("ECG Emotion Recognition")
     st.info("ECG tracking feature coming soon. This will monitor heart rate variability to detect stress and emotional states.")
@@ -303,7 +322,7 @@ def dashboard_page():
                 title="Emotion Intensity Over Time",
                 labels={"score": "Confidence Score", "date": "Date"}
             )
-            st.plotly_chart(fig_line, use_container_width=True)
+            st.plotly_chart(fig_line, width='stretch')
             
         with tab2:
             fig_pie=px.pie(
@@ -312,13 +331,15 @@ def dashboard_page():
                 title="Emotion Distribution",
                 hole=0.4
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width='stretch')
 
     with st.expander("View Personal Details"):
         safe_info=user_info.copy()
         if 'password' in safe_info:
             del safe_info['password']
-        st.table(pd.DataFrame(safe_info.items(), columns=['Field', 'Value']))
+        df_info=pd.DataFrame(safe_info.items(), columns=['Field', 'Value'])
+        df_info['Value']=df_info['Value'].astype(str)
+        st.table(df_info)
 
 def main():
     if 'logged_in' not in st.session_state:
@@ -356,6 +377,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
