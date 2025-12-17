@@ -184,33 +184,33 @@ def chatbot_page():
 # --- HELPER FUNCTIONS FOR EEG ---
 
 def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
-    nyquist=0.5 * fs
-    low=lowcut / nyquist
-    high=highcut / nyquist
-    b, a=butter(order, [low, high], btype='band')
+    nyquist = 0.5 * fs
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    b, a = butter(order, [low, high], btype='band')
     return filtfilt(b, a, signal, axis=0)
 
 @st.cache_resource
 def load_eeg_model():
-    model_path="best_eeg_model.keras"
-    # URL to the "Raw" file on GitHub (replace user/repo with yours)
-    # IMPORTANT: Update this URL to point to YOUR specific repository
-    url="https://github.com/Jivi1512/DailyEmotionTracking/blob/main/best_eeg_model.keras"
+    model_path = "best_eeg_model.keras"
+    # FIXED: Use raw.githubusercontent.com for direct file download
+    url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
     
-    # Check if file exists and is large enough (not just a Git LFS pointer)
+    # Logic: Only download if file doesn't exist or is too small (corrupt/pointer)
     if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
-        with st.spinner("Downloading model from GitHub LFS... (this happens once)"):
+        with st.spinner("Downloading EEG Model (approx 50MB)..."):
             try:
-                response=requests.get(url, stream=True)
+                response = requests.get(url, stream=True)
                 if response.status_code == 200:
                     with open(model_path, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
+                    st.success("Model downloaded successfully!")
                 else:
-                    st.error(f"Failed to download model. Status code: {response.status_code}")
+                    st.error(f"Download failed (Status: {response.status_code}). Check URL.")
                     return None
             except Exception as e:
-                st.error(f"Download error: {e}")
+                st.error(f"Connection error: {e}")
                 return None
 
     try:
@@ -221,47 +221,58 @@ def load_eeg_model():
 
 def eeg_page():
     st.title("EEG Emotion Recognition")
+    st.info("Simulating EEG signal processing from 62 channels.")
+
+    # Model Loading
+    model = load_eeg_model()
     
-    model=load_eeg_model()
-    
+    # Manual Upload Fallback
     if not model:
-        st.warning("Model could not be loaded. Please check the GitHub URL in the code.")
+        st.warning("Automatic download failed. Please upload 'best_eeg_model.keras' manually.")
+        uploaded_model = st.file_uploader("Upload Model File", type=["keras", "h5"])
+        if uploaded_model:
+            with open("best_eeg_model.keras", "wb") as f:
+                f.write(uploaded_model.getbuffer())
+            st.success("Model uploaded! Please reload the page.")
         return
 
     st.write(f"**Model Status:** Loaded | **Input Shape:** (800, 62)")
     
     if st.button("Start Live Simulation"):
-        col_graph, col_pred=st.columns([2, 1])
-        status=st.empty()
-        bar=st.progress(0)
+        col_graph, col_pred = st.columns([2, 1])
+        status = st.empty()
+        bar = st.progress(0)
         
-        emotion_labels=['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
+        emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         
-        # Simulate processing
+        # Simulate processing 10 batches
         for i in range(10):
             # 1. Generate Dummy Data (800 time steps, 62 channels)
-            raw_signal=np.random.normal(0, 1, (800, 62))
+            raw_signal = np.random.normal(0, 1, (800, 62))
             
             # 2. Preprocess
-            filtered=robust_bandpass_filter(raw_signal)
-            processed=(filtered - np.mean(filtered)) / (np.std(filtered) + 1e-6)
+            filtered = robust_bandpass_filter(raw_signal)
+            # Normalize
+            processed = (filtered - np.mean(filtered)) / (np.std(filtered) + 1e-6)
             
-            # 3. Reshape for Model
-            input_batch=np.expand_dims(processed, axis=0)
+            # 3. Reshape for Model (Batch Size, Time Steps, Channels)
+            input_batch = np.expand_dims(processed, axis=0)
             
             # 4. Predict
-            preds=model.predict(input_batch, verbose=0)[0]
-            top_idx=np.argmax(preds)
-            top_emotion=emotion_labels[top_idx]
-            top_conf=preds[top_idx]
+            preds = model.predict(input_batch, verbose=0)[0]
+            top_idx = np.argmax(preds)
+            top_emotion = emotion_labels[top_idx]
+            top_conf = preds[top_idx]
             
             # 5. Update UI
             with col_graph:
+                st.subheader("Live EEG Channel Data (FP1)")
                 st.line_chart(processed[:100, 0], height=250)
                 
             with col_pred:
+                st.subheader("Prediction")
                 st.metric("Detected", top_emotion, f"{top_conf*100:.1f}%")
-                df_probs=pd.DataFrame({"Emotion": emotion_labels, "Prob": preds})
+                df_probs = pd.DataFrame({"Emotion": emotion_labels, "Prob": preds})
                 st.bar_chart(df_probs.set_index("Emotion"))
 
             status.text(f"Processing batch {i+1}/10...")
@@ -269,6 +280,21 @@ def eeg_page():
             time.sleep(0.5) 
             
         status.success("Session Complete")
+        
+        # Optional: Auto-save result
+        if st.checkbox("Save Session Result"):
+            all_data = load_data(DATA_DB)
+            user_data = all_data.get(st.session_state['username'], [])
+            user_data.append({
+                "date": str(datetime.now()),
+                "type": "eeg_scan",
+                "emotion": top_emotion,
+                "score": float(top_conf),
+                "summary": "EEG Simulation"
+            })
+            all_data[st.session_state['username']] = user_data
+            save_data(all_data, DATA_DB)
+            st.success("Saved to Dashboard.")
 def dashboard_page():
     # --- 1. Welcome Header ---
     user_info=st.session_state['user_info']
@@ -383,13 +409,14 @@ def main():
             eeg_page()
         elif menu == "ECG":
             st.title("ECG Tracker")
-        elif menu == "📈 Trends":
-            st.title("📈 Advanced Analytics")
+        elif menu == "Trends":
+            st.title("Advanced Analytics")
             st.info("Visit the Dashboard for your current summary graphs.")
 
 if __name__ == "__main__":
 
     main()
+
 
 
 
