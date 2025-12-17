@@ -190,33 +190,53 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     b, a = butter(order, [low, high], btype='band')
     return filtfilt(b, a, signal, axis=0)
 
+@tf.keras.utils.register_keras_serializable()
+class SafeInputLayer(tf.keras.layers.InputLayer):
+    """
+    A wrapper around InputLayer to handle the 'batch_shape' argument 
+    which causes errors when loading Keras 2 models in Keras 3.
+    """
+    def __init__(self, **kwargs):
+        # Pop 'batch_shape' if it exists and map it to 'batch_input_shape'
+        # which Keras 3 understands, or simply ignore it if shape is already there.
+        if 'batch_shape' in kwargs:
+            batch_shape = kwargs.pop('batch_shape')
+            if 'batch_input_shape' not in kwargs:
+                kwargs['batch_input_shape'] = batch_shape
+        super().__init__(**kwargs)
+
+# --- UPDATED MODEL LOADER ---
+
 @st.cache_resource
 def load_eeg_model():
     model_path = "best_eeg_model.keras"
-    # FIXED: Use raw.githubusercontent.com for direct file download
     url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
     
-    # Logic: Only download if file doesn't exist or is too small (corrupt/pointer)
+    # Check if file exists and is valid
     if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
-        with st.spinner("Downloading EEG Model (approx 50MB)..."):
+        with st.spinner("Downloading EEG Model..."):
             try:
                 response = requests.get(url, stream=True)
                 if response.status_code == 200:
                     with open(model_path, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
-                    st.success("Model downloaded successfully!")
                 else:
-                    st.error(f"Download failed (Status: {response.status_code}). Check URL.")
+                    st.error(f"Download failed (Status: {response.status_code})")
                     return None
             except Exception as e:
                 st.error(f"Connection error: {e}")
                 return None
 
     try:
-        return tf.keras.models.load_model(model_path)
+        # Pass the SafeInputLayer to handle the deserialization error
+        return tf.keras.models.load_model(
+            model_path, 
+            custom_objects={'InputLayer': SafeInputLayer},
+            compile=False # Often helps with version mismatches too
+        )
     except Exception as e:
-        st.error(f"Error loading Keras model: {e}")
+        st.error(f"Detailed Loading Error: {e}")
         return None
 
 def eeg_page():
@@ -416,6 +436,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
