@@ -186,7 +186,7 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
-    model=load_model("from tensorflow.keras.models import load_model")
+    model=load_model("best_eeg_model.keras")
     if not model:
         st.warning("Model file not detected. Running in demo mode with simulated predictions.")
         st.info("To use the actual model, ensure 'best_eeg_model.keras' is in the root directory of your repository.")
@@ -356,5 +356,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
