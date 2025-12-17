@@ -10,13 +10,9 @@ from streamlit_gsheets import GSheetsConnection
 import plotly.express as px
 import tensorflow as tf
 from scipy.signal import butter, filtfilt
-import requests
 import time
-import os
 
 st.set_page_config(page_title="EmoTrack AI", layout="wide")
-
-# --- GOOGLE SHEETS CONNECTION ---
 
 SHEET_MAPPING={'users': 'UserDB', 'data': 'DataDB'}
 
@@ -63,13 +59,9 @@ def save_data(data, data_type):
 USER_DB='users'
 DATA_DB='data'
 
-# --- GEMINI AI ---
-
 def init_gemini(api_key):
     genai.configure(api_key=api_key)
     return genai.GenerativeModel('gemini-2.5-flash')
-
-# --- PAGES ---
 
 def login_page():
     st.title("Login")
@@ -141,7 +133,7 @@ def face_detection_page():
 
 def chatbot_page():
     st.title("AI Therapist")
-    st.write(f"Hi {st.session_state['username']}!\n How was your day today?")
+    st.write(f"Hi {st.session_state['username']}! How was your day today?")
     api_key=st.secrets.get("GEMINI_API_KEY")
     if not api_key:
         api_key=st.text_input("API Key", type="password")
@@ -181,149 +173,57 @@ def chatbot_page():
                 save_data(all_data, DATA_DB)
             except Exception as e:
                 st.error(f"API Error: {e}")
-# --- HELPER FUNCTIONS FOR EEG ---
 
 def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
-    nyquist = 0.5 * fs
-    low = lowcut / nyquist
-    high = highcut / nyquist
-    b, a = butter(order, [low, high], btype='band')
+    nyquist=0.5 * fs
+    low=lowcut / nyquist
+    high=highcut / nyquist
+    b, a=butter(order, [low, high], btype='band')
     return filtfilt(b, a, signal, axis=0)
-
-# --- KERAS VERSION COMPATIBILITY PATCHES ---
-# NOTE: Decorators removed to prevent Streamlit reload errors
-
-class SafeInputLayer(tf.keras.layers.InputLayer):
-    """
-    Fixes the 'batch_shape' error when loading Keras 3 models in Keras 2.
-    """
-    def __init__(self, **kwargs):
-        if 'batch_shape' in kwargs:
-            batch_shape = kwargs.pop('batch_shape')
-            if 'batch_input_shape' not in kwargs:
-                kwargs['batch_input_shape'] = batch_shape
-        super().__init__(**kwargs)
-    
-    def get_config(self):
-        config = super().get_config()
-        return config
-
-class MockDTypePolicy:
-    """
-    Fixes the 'DTypePolicy' error by mocking the missing Keras 3 class.
-    """
-    def __init__(self, name="float32", **kwargs):
-        self._name = name
-    
-    @property
-    def name(self):
-        return self._name
-    
-    @property
-    def compute_dtype(self):
-        return self._name
-
-    @property
-    def variable_dtype(self):
-        return self._name
-    
-    def get_config(self):
-        return {"name": self._name}
-    
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-# --- UPDATED MODEL LOADER ---
 
 @st.cache_resource
 def load_eeg_model():
-    model_path = "best_eeg_model.keras"
-    url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
-    
-    # 1. Download Logic
-    if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
-        with st.spinner("Downloading EEG Model..."):
-            try:
-                response = requests.get(url, stream=True)
-                if response.status_code == 200:
-                    with open(model_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                else:
-                    st.error(f"Download failed (Status: {response.status_code})")
-                    return None
-            except Exception as e:
-                st.error(f"Connection error: {e}")
-                return None
-
-    # 2. Loading Logic with Custom Objects
     try:
-        return tf.keras.models.load_model(
-            model_path, 
-            custom_objects={
-                'InputLayer': SafeInputLayer,
-                'DTypePolicy': MockDTypePolicy  # Pass classes directly here
-            },
-            compile=False 
-        )
-    except Exception as e:
-        st.error(f"Critical Loading Error: {e}")
+        return tf.keras.models.load_model("best_eeg_model.keras")
+    except:
         return None
+
 def eeg_page():
     st.title("EEG Emotion Recognition")
-    st.info("Simulating EEG signal processing from 62 channels.")
-
-    # Model Loading
-    model = load_eeg_model()
     
-    # Manual Upload Fallback
+    model=load_eeg_model()
     if not model:
-        st.warning("Automatic download failed. Please upload 'best_eeg_model.keras' manually.")
-        uploaded_model = st.file_uploader("Upload Model File", type=["keras", "h5"])
-        if uploaded_model:
-            with open("best_eeg_model.keras", "wb") as f:
-                f.write(uploaded_model.getbuffer())
-            st.success("Model uploaded! Please reload the page.")
+        st.error("Model 'best_eeg_model.keras' not found. Please upload it to your repository.")
         return
 
-    st.write(f"**Model Status:** Loaded | **Input Shape:** (800, 62)")
+    st.write(f"Model Loaded: CNN-LSTM | Input Shape: (800, 62)")
     
     if st.button("Start Live Simulation"):
-        col_graph, col_pred = st.columns([2, 1])
-        status = st.empty()
-        bar = st.progress(0)
+        col_graph, col_pred=st.columns([2, 1])
+        status=st.empty()
+        bar=st.progress(0)
         
-        emotion_labels = ['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
+        emotion_labels=['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         
-        # Simulate processing 10 batches
         for i in range(10):
-            # 1. Generate Dummy Data (800 time steps, 62 channels)
-            raw_signal = np.random.normal(0, 1, (800, 62))
+            raw_signal=np.random.normal(0, 1, (800, 62))
             
-            # 2. Preprocess
-            filtered = robust_bandpass_filter(raw_signal)
-            # Normalize
-            processed = (filtered - np.mean(filtered)) / (np.std(filtered) + 1e-6)
+            filtered=robust_bandpass_filter(raw_signal)
+            processed=(filtered - np.mean(filtered)) / (np.std(filtered) + 1e-6)
             
-            # 3. Reshape for Model (Batch Size, Time Steps, Channels)
-            input_batch = np.expand_dims(processed, axis=0)
+            input_batch=np.expand_dims(processed, axis=0)
             
-            # 4. Predict
-            preds = model.predict(input_batch, verbose=0)[0]
-            top_idx = np.argmax(preds)
-            top_emotion = emotion_labels[top_idx]
-            top_conf = preds[top_idx]
+            preds=model.predict(input_batch, verbose=0)[0]
+            top_idx=np.argmax(preds)
+            top_emotion=emotion_labels[top_idx]
+            top_conf=preds[top_idx]
             
-            # 5. Update UI
             with col_graph:
-                st.subheader("Live EEG Channel Data (FP1)")
                 st.line_chart(processed[:100, 0], height=250)
                 
             with col_pred:
-                st.subheader("Prediction")
                 st.metric("Detected", top_emotion, f"{top_conf*100:.1f}%")
-                df_probs = pd.DataFrame({"Emotion": emotion_labels, "Prob": preds})
+                df_probs=pd.DataFrame({"Emotion": emotion_labels, "Prob": preds})
                 st.bar_chart(df_probs.set_index("Emotion"))
 
             status.text(f"Processing batch {i+1}/10...")
@@ -331,46 +231,45 @@ def eeg_page():
             time.sleep(0.5) 
             
         status.success("Session Complete")
+
+def ecg_page():
+    st.title("ECG Emotion Recognition")
+    st.info("ECG tracking feature coming soon. This will monitor heart rate variability to detect stress and emotional states.")
+    
+    if st.button("Start ECG Simulation"):
+        progress_bar=st.progress(0)
+        status_text=st.empty()
+        chart_placeholder=st.empty()
         
-        # Optional: Auto-save result
-        if st.checkbox("Save Session Result"):
-            all_data = load_data(DATA_DB)
-            user_data = all_data.get(st.session_state['username'], [])
-            user_data.append({
-                "date": str(datetime.now()),
-                "type": "eeg_scan",
-                "emotion": top_emotion,
-                "score": float(top_conf),
-                "summary": "EEG Simulation"
-            })
-            all_data[st.session_state['username']] = user_data
-            save_data(all_data, DATA_DB)
-            st.success("Saved to Dashboard.")
+        for i in range(100):
+            ecg_signal=np.sin(np.linspace(0, 4*np.pi, 200)) + np.random.normal(0, 0.1, 200)
+            chart_placeholder.line_chart(ecg_signal)
+            status_text.text(f"Recording: {i+1}%")
+            progress_bar.progress(i + 1)
+            time.sleep(0.05)
+        
+        st.success("ECG recording complete")
+        st.metric("Average Heart Rate", "72 BPM")
+        st.metric("Stress Level", "Low")
+
 def dashboard_page():
-    # --- 1. Welcome Header ---
     user_info=st.session_state['user_info']
     st.title(f"Hi, {user_info['name']}!")
     st.markdown(f"**Occupation:** {user_info.get('occupation', 'N/A')} | **Base Mood:** {user_info.get('base_mood', 'Neutral')}")
     st.divider()
 
-    # --- 2. Load & Process Data ---
     all_data=load_data(DATA_DB)
     history=all_data.get(st.session_state['username'], [])
     
-    # --- 3. Summary Metrics ---
     col1, col2, col3=st.columns(3)
     
     total_entries=len(history)
     last_checkin=history[-1]['date'][:10] if history else "No Data"
     
-    # Calculate most frequent emotion
-    # Calculate most frequent emotion
     if history:
         df=pd.DataFrame(history)
-        # Clean date format
         df['date']=pd.to_datetime(df['date'])
         
-        # Dominant Emotion (Safe Calculation)
         if 'emotion' in df.columns and not df['emotion'].empty:
             mode_result=df['emotion'].mode()
             if not mode_result.empty:
@@ -390,14 +289,12 @@ def dashboard_page():
     with col3:
         st.metric("Dominant Emotion", str(top_emotion).title())
 
-    # --- 4. Interactive Graphs ---
     if not df.empty and 'score' in df.columns and 'emotion' in df.columns:
         st.subheader("Your Emotional Trends")
         
         tab1, tab2=st.tabs(["Timeline", "Distribution"])
         
         with tab1:
-            # Line Chart: Emotion Score over Time
             fig_line=px.line(
                 df, 
                 x='date', 
@@ -410,7 +307,6 @@ def dashboard_page():
             st.plotly_chart(fig_line, use_container_width=True)
             
         with tab2:
-            # Pie Chart: Emotion Breakdown
             fig_pie=px.pie(
                 df, 
                 names='emotion', 
@@ -419,12 +315,10 @@ def dashboard_page():
             )
             st.plotly_chart(fig_pie, use_container_width=True)
 
-    # --- 5. Secure Profile View (Password Hidden) ---
     with st.expander("View Personal Details"):
-        # Create a copy to avoid modifying the actual session state
         safe_info=user_info.copy()
         if 'password' in safe_info:
-            del safe_info['password']  # Remove password from display
+            del safe_info['password']
         st.table(pd.DataFrame(safe_info.items(), columns=['Field', 'Value']))
 
 def main():
@@ -436,10 +330,9 @@ def main():
         if menu == "Login": login_page()
         else: signup_page()
     else:
-        # --- Sidebar ---
         with st.sidebar:
-            st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=100) # Placeholder avatar
-            st.title(f"Welcome,\n{st.session_state['user_info']['name']}")
+            st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=100)
+            st.title(f"Welcome, {st.session_state['user_info']['name']}")
             st.write("---")
             menu=st.radio("Menu", ["Dashboard", "AI Therapist", "Face Scan", "EEG", "ECG", "Trends"])
             
@@ -448,35 +341,19 @@ def main():
                 st.session_state['logged_in']=False
                 st.rerun()
 
-        # --- Page Routing ---
         if menu == "Dashboard":
             dashboard_page()
         elif menu == "AI Therapist":
             chatbot_page()
         elif menu == "Face Scan":
             face_detection_page()
-        
         elif menu == "EEG":
             eeg_page()
         elif menu == "ECG":
-            st.title("ECG Tracker")
+            ecg_page()
         elif menu == "Trends":
             st.title("Advanced Analytics")
             st.info("Visit the Dashboard for your current summary graphs.")
 
 if __name__ == "__main__":
-
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
