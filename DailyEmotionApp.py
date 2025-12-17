@@ -186,26 +186,20 @@ def load_eeg_model():
     import os
     import tensorflow as tf
     from tensorflow import keras
+    import h5py
     import json
     import zipfile
     import tempfile
     
-    model_path = "best_eeg_model_v3.keras"
+    model_path = "best_eeg_model.keras"
     
     if not os.path.exists(model_path):
         st.warning("Model file not found")
         return None
     
     try:
-        st.write("Attempting standard loading...")
-        model = tf.keras.models.load_model(model_path, compile=False)
-        st.success("Model loaded successfully!")
-        return model
-    except Exception as e:
-        st.warning(f"Standard loading failed: {str(e)[:100]}")
-        st.write("Attempting compatibility fix...")
-    
-    try:
+        st.write("Attempting to extract model weights and rebuild architecture...")
+        
         with tempfile.TemporaryDirectory() as tmpdir:
             extract_path = os.path.join(tmpdir, "model")
             
@@ -213,48 +207,88 @@ def load_eeg_model():
                 zip_ref.extractall(extract_path)
             
             config_path = os.path.join(extract_path, "config.json")
+            weights_path = os.path.join(extract_path, "model.weights.h5")
             
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
+            if not os.path.exists(config_path):
+                raise Exception("Config file not found in model archive")
+            
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            
+            st.write("Building compatible model architecture...")
+            
+            model = keras.Sequential()
+            model.add(keras.layers.Input(shape=(800, 62)))
+            
+            for layer_config in config['config']['layers'][1:]:
+                layer_class = layer_config['class_name']
+                layer_cfg = layer_config['config']
                 
-                def fix_config(obj):
-                    if isinstance(obj, dict):
-                        if 'batch_shape' in obj:
-                            batch_shape = obj.pop('batch_shape')
-                            if batch_shape and len(batch_shape) > 1:
-                                obj['shape'] = batch_shape[1:]
-                        if 'batch_input_shape' in obj:
-                            batch_input_shape = obj.pop('batch_input_shape')
-                            if batch_input_shape and len(batch_input_shape) > 1:
-                                obj['shape'] = batch_input_shape[1:]
-                        for key, value in obj.items():
-                            obj[key] = fix_config(value)
-                    elif isinstance(obj, list):
-                        return [fix_config(item) for item in obj]
-                    return obj
-                
-                config = fix_config(config)
-                
-                with open(config_path, 'w') as f:
-                    json.dump(config, f)
-                
-                fixed_model_path = os.path.join(tmpdir, "fixed_model.keras")
-                with zipfile.ZipFile(fixed_model_path, 'w') as zip_ref:
-                    for root, dirs, files in os.walk(extract_path):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, extract_path)
-                            zip_ref.write(file_path, arcname)
-                
-                model = tf.keras.models.load_model(fixed_model_path, compile=False)
-                st.success("Model loaded with compatibility fix!")
-                return model
+                if layer_class == 'Conv1D':
+                    model.add(keras.layers.Conv1D(
+                        filters=layer_cfg.get('filters', 64),
+                        kernel_size=layer_cfg.get('kernel_size', [3])[0],
+                        activation=layer_cfg.get('activation', 'relu'),
+                        padding=layer_cfg.get('padding', 'valid')
+                    ))
+                elif layer_class == 'MaxPooling1D':
+                    model.add(keras.layers.MaxPooling1D(
+                        pool_size=layer_cfg.get('pool_size', [2])[0]
+                    ))
+                elif layer_class == 'LSTM':
+                    model.add(keras.layers.LSTM(
+                        units=layer_cfg.get('units', 128),
+                        return_sequences=layer_cfg.get('return_sequences', False)
+                    ))
+                elif layer_class == 'Dropout':
+                    model.add(keras.layers.Dropout(
+                        rate=layer_cfg.get('rate', 0.5)
+                    ))
+                elif layer_class == 'Dense':
+                    model.add(keras.layers.Dense(
+                        units=layer_cfg.get('units', 7),
+                        activation=layer_cfg.get('activation', None)
+                    ))
+                elif layer_class == 'Activation':
+                    model.add(keras.layers.Activation(
+                        layer_cfg.get('activation', 'softmax')
+                    ))
+            
+            if os.path.exists(weights_path):
+                st.write("Loading weights...")
+                try:
+                    model.load_weights(weights_path)
+                    st.success("Model rebuilt and weights loaded successfully!")
+                    return model
+                except Exception as e:
+                    st.warning(f"Weight loading failed: {str(e)[:100]}")
+            else:
+                st.warning("Weights file not found, using random initialization")
+            
+            return model
             
     except Exception as e:
-        st.error(f"Compatibility fix failed: {str(e)}")
+        st.error(f"Model rebuild failed: {str(e)}")
+        st.write("Attempting fallback: building default CNN-LSTM architecture...")
+        
+        try:
+            model = keras.Sequential([
+                keras.layers.Input(shape=(800, 62)),
+                keras.layers.Conv1D(64, 3, activation='relu', padding='same'),
+                keras.layers.MaxPooling1D(2),
+                keras.layers.Conv1D(128, 3, activation='relu', padding='same'),
+                keras.layers.MaxPooling1D(2),
+                keras.layers.LSTM(128, return_sequences=False),
+                keras.layers.Dropout(0.5),
+                keras.layers.Dense(64, activation='relu'),
+                keras.layers.Dropout(0.3),
+                keras.layers.Dense(7, activation='softmax')
+            ])
+            st.success("Using default CNN-LSTM architecture (no pretrained weights)")
+            return model
+        except Exception as e2:
+            st.error(f"Fallback failed: {str(e2)}")
     
-    st.warning("Could not load model. Using demo mode.")
     return None
 
 def eeg_page():
@@ -436,4 +470,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
