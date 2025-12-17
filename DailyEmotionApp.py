@@ -190,20 +190,47 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     b, a = butter(order, [low, high], btype='band')
     return filtfilt(b, a, signal, axis=0)
 
+# --- KERAS VERSION COMPATIBILITY PATCHES ---
+
 @tf.keras.utils.register_keras_serializable()
 class SafeInputLayer(tf.keras.layers.InputLayer):
     """
-    A wrapper around InputLayer to handle the 'batch_shape' argument 
-    which causes errors when loading Keras 2 models in Keras 3.
+    Fixes the 'batch_shape' error when loading Keras 3 models in Keras 2.
     """
     def __init__(self, **kwargs):
-        # Pop 'batch_shape' if it exists and map it to 'batch_input_shape'
-        # which Keras 3 understands, or simply ignore it if shape is already there.
         if 'batch_shape' in kwargs:
             batch_shape = kwargs.pop('batch_shape')
             if 'batch_input_shape' not in kwargs:
                 kwargs['batch_input_shape'] = batch_shape
         super().__init__(**kwargs)
+
+@tf.keras.utils.register_keras_serializable()
+class MockDTypePolicy:
+    """
+    Fixes the 'DTypePolicy' error by mocking the missing Keras 3 class.
+    Acts as a placeholder for the dtype configuration.
+    """
+    def __init__(self, name="float32", **kwargs):
+        self._name = name
+    
+    @property
+    def name(self):
+        return self._name
+    
+    @property
+    def compute_dtype(self):
+        return self._name
+
+    @property
+    def variable_dtype(self):
+        return self._name
+    
+    def get_config(self):
+        return {"name": self._name}
+    
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 # --- UPDATED MODEL LOADER ---
 
@@ -212,7 +239,7 @@ def load_eeg_model():
     model_path = "best_eeg_model.keras"
     url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
     
-    # Check if file exists and is valid
+    # 1. Download Logic
     if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
         with st.spinner("Downloading EEG Model..."):
             try:
@@ -228,17 +255,19 @@ def load_eeg_model():
                 st.error(f"Connection error: {e}")
                 return None
 
+    # 2. Loading Logic with Custom Objects
     try:
-        # Pass the SafeInputLayer to handle the deserialization error
         return tf.keras.models.load_model(
             model_path, 
-            custom_objects={'InputLayer': SafeInputLayer},
-            compile=False # Often helps with version mismatches too
+            custom_objects={
+                'InputLayer': SafeInputLayer,
+                'DTypePolicy': MockDTypePolicy  # Register the mock class here
+            },
+            compile=False 
         )
     except Exception as e:
-        st.error(f"Detailed Loading Error: {e}")
+        st.error(f"Critical Loading Error: {e}")
         return None
-
 def eeg_page():
     st.title("EEG Emotion Recognition")
     st.info("Simulating EEG signal processing from 62 channels.")
@@ -436,6 +465,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
