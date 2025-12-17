@@ -12,6 +12,7 @@ import tensorflow as tf
 from scipy.signal import butter, filtfilt
 import requests
 import time
+import os
 
 st.set_page_config(page_title="EmoTrack AI", layout="wide")
 
@@ -181,13 +182,6 @@ def chatbot_page():
             except Exception as e:
                 st.error(f"API Error: {e}")
 # --- HELPER FUNCTIONS FOR EEG ---
-import os
-import requests
-import tensorflow as tf
-from scipy.signal import butter, filtfilt
-import time
-
-# --- HELPER FUNCTIONS FOR EEG ---
 
 def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     nyquist=0.5 * fs
@@ -201,7 +195,7 @@ def load_eeg_model():
     model_path="best_eeg_model.keras"
     # URL to the "Raw" file on GitHub (replace user/repo with yours)
     # IMPORTANT: Update this URL to point to YOUR specific repository
-    url="https://github.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
+    url="https://github.com/Jivi1512/DailyEmotionTracking/blob/main/best_eeg_model.keras"
     
     # Check if file exists and is large enough (not just a Git LFS pointer)
     if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
@@ -396,6 +390,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
