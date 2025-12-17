@@ -9,6 +9,7 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import plotly.express as px
 import tensorflow as tf
+from tensorflow.keras.models import load_model
 from scipy.signal import butter, filtfilt
 import time
 
@@ -182,26 +183,10 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     return filtfilt(b, a, signal, axis=0)
 
 @st.cache_resource
-def load_eeg_model():
-    import os
-    model_paths=[
-        "best_eeg_model.keras",
-        "./best_eeg_model.keras",
-        os.path.join(os.path.dirname(__file__), "best_eeg_model.keras")
-    ]
-    
-    for path in model_paths:
-        try:
-            if os.path.exists(path):
-                return tf.keras.models.load_model(path)
-        except Exception as e:
-            continue
-    return None
-
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
-    model=load_eeg_model()
+    model=load_model("from tensorflow.keras.models import load_model")
     if not model:
         st.warning("Model file not detected. Running in demo mode with simulated predictions.")
         st.info("To use the actual model, ensure 'best_eeg_model.keras' is in the root directory of your repository.")
@@ -371,4 +356,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
