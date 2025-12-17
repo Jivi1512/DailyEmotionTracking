@@ -183,20 +183,31 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
 
 @st.cache_resource
 def load_eeg_model():
-    try:
-        return tf.keras.models.load_model("best_eeg_model.keras")
-    except:
-        return None
+    import os
+    model_paths=[
+        "best_eeg_model.keras",
+        "./best_eeg_model.keras",
+        os.path.join(os.path.dirname(__file__), "best_eeg_model.keras")
+    ]
+    
+    for path in model_paths:
+        try:
+            if os.path.exists(path):
+                return tf.keras.models.load_model(path)
+        except Exception as e:
+            continue
+    return None
 
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
     model=load_eeg_model()
     if not model:
-        st.error("Model 'best_eeg_model.keras' not found. Please upload it to your repository.")
-        return
-
-    st.write(f"Model Loaded: CNN-LSTM | Input Shape: (800, 62)")
+        st.warning("Model file not detected. Running in demo mode with simulated predictions.")
+        st.info("To use the actual model, ensure 'best_eeg_model.keras' is in the root directory of your repository.")
+        model=None
+    else:
+        st.success("Model Loaded: CNN-LSTM | Input Shape: (800, 62)")
     
     if st.button("Start Live Simulation"):
         col_graph, col_pred=st.columns([2, 1])
@@ -213,7 +224,11 @@ def eeg_page():
             
             input_batch=np.expand_dims(processed, axis=0)
             
-            preds=model.predict(input_batch, verbose=0)[0]
+            if model:
+                preds=model.predict(input_batch, verbose=0)[0]
+            else:
+                preds=np.random.dirichlet(np.ones(7))
+            
             top_idx=np.argmax(preds)
             top_emotion=emotion_labels[top_idx]
             top_conf=preds[top_idx]
@@ -231,7 +246,6 @@ def eeg_page():
             time.sleep(0.5) 
             
         status.success("Session Complete")
-
 def ecg_page():
     st.title("ECG Emotion Recognition")
     st.info("ECG tracking feature coming soon. This will monitor heart rate variability to detect stress and emotional states.")
@@ -357,3 +371,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
