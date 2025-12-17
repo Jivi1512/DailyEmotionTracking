@@ -10,6 +10,7 @@ from streamlit_gsheets import GSheetsConnection
 import plotly.express as px
 import tensorflow as tf
 from scipy.signal import butter, filtfilt
+import requests
 import time
 
 st.set_page_config(page_title="EmoTrack AI", layout="wide")
@@ -180,53 +181,78 @@ def chatbot_page():
             except Exception as e:
                 st.error(f"API Error: {e}")
 # --- HELPER FUNCTIONS FOR EEG ---
+import os
+import requests
+import tensorflow as tf
+from scipy.signal import butter, filtfilt
+import time
+
+# --- HELPER FUNCTIONS FOR EEG ---
 
 def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     nyquist=0.5 * fs
     low=lowcut / nyquist
     high=highcut / nyquist
     b, a=butter(order, [low, high], btype='band')
-    # Signal shape is (800, 62), filtering along time axis (0)
     return filtfilt(b, a, signal, axis=0)
 
 @st.cache_resource
 def load_eeg_model():
+    model_path="best_eeg_model.keras"
+    # URL to the "Raw" file on GitHub (replace user/repo with yours)
+    # IMPORTANT: Update this URL to point to YOUR specific repository
+    url="https://github.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
+    
+    # Check if file exists and is large enough (not just a Git LFS pointer)
+    if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
+        with st.spinner("Downloading model from GitHub LFS... (this happens once)"):
+            try:
+                response=requests.get(url, stream=True)
+                if response.status_code == 200:
+                    with open(model_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                else:
+                    st.error(f"Failed to download model. Status code: {response.status_code}")
+                    return None
+            except Exception as e:
+                st.error(f"Download error: {e}")
+                return None
+
     try:
-        # specific path to your uploaded model
-        return tf.keras.models.load_model("best_eeg_model.keras")
-    except:
+        return tf.keras.models.load_model(model_path)
+    except Exception as e:
+        st.error(f"Error loading Keras model: {e}")
         return None
 
 def eeg_page():
     st.title("EEG Emotion Recognition")
     
-    # Check for model
     model=load_eeg_model()
+    
     if not model:
-        st.error("Model 'best_eeg_model.keras' not found. Please upload it to your repository.")
+        st.warning("Model could not be loaded. Please check the GitHub URL in the code.")
         return
 
-    st.write(f"Model Loaded: CNN-LSTM | Input Shape: (800, 62)")
+    st.write(f"**Model Status:** Loaded | **Input Shape:** (800, 62)")
     
     if st.button("Start Live Simulation"):
-        # Layout for live updates
         col_graph, col_pred=st.columns([2, 1])
         status=st.empty()
         bar=st.progress(0)
         
         emotion_labels=['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         
-        # Simulate 10 seconds of processing
+        # Simulate processing
         for i in range(10):
             # 1. Generate Dummy Data (800 time steps, 62 channels)
             raw_signal=np.random.normal(0, 1, (800, 62))
             
-            # 2. Preprocess (Filter & Scale)
+            # 2. Preprocess
             filtered=robust_bandpass_filter(raw_signal)
-            # Simple standardization (mean=0, std=1)
             processed=(filtered - np.mean(filtered)) / (np.std(filtered) + 1e-6)
             
-            # 3. Reshape for Model (1, 800, 62)
+            # 3. Reshape for Model
             input_batch=np.expand_dims(processed, axis=0)
             
             # 4. Predict
@@ -237,12 +263,10 @@ def eeg_page():
             
             # 5. Update UI
             with col_graph:
-                # Plot first channel as representative signal
                 st.line_chart(processed[:100, 0], height=250)
                 
             with col_pred:
                 st.metric("Detected", top_emotion, f"{top_conf*100:.1f}%")
-                # Probability distribution
                 df_probs=pd.DataFrame({"Emotion": emotion_labels, "Prob": preds})
                 st.bar_chart(df_probs.set_index("Emotion"))
 
@@ -360,9 +384,11 @@ def main():
             chatbot_page()
         elif menu == "Face Scan":
             face_detection_page()
+        
         elif menu == "EEG":
-            st.title("EEG Tracker")
             eeg_page()
+        elif menu == "ECG":
+            st.title("ECG Tracker")
         elif menu == "📈 Trends":
             st.title("📈 Advanced Analytics")
             st.info("Visit the Dashboard for your current summary graphs.")
@@ -370,6 +396,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
