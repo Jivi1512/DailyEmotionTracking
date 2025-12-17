@@ -191,8 +191,8 @@ def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
     return filtfilt(b, a, signal, axis=0)
 
 # --- KERAS VERSION COMPATIBILITY PATCHES ---
+# NOTE: Decorators removed to prevent Streamlit reload errors
 
-@tf.keras.utils.register_keras_serializable()
 class SafeInputLayer(tf.keras.layers.InputLayer):
     """
     Fixes the 'batch_shape' error when loading Keras 3 models in Keras 2.
@@ -203,12 +203,14 @@ class SafeInputLayer(tf.keras.layers.InputLayer):
             if 'batch_input_shape' not in kwargs:
                 kwargs['batch_input_shape'] = batch_shape
         super().__init__(**kwargs)
+    
+    def get_config(self):
+        config = super().get_config()
+        return config
 
-@tf.keras.utils.register_keras_serializable()
 class MockDTypePolicy:
     """
     Fixes the 'DTypePolicy' error by mocking the missing Keras 3 class.
-    Acts as a placeholder for the dtype configuration.
     """
     def __init__(self, name="float32", **kwargs):
         self._name = name
@@ -261,7 +263,7 @@ def load_eeg_model():
             model_path, 
             custom_objects={
                 'InputLayer': SafeInputLayer,
-                'DTypePolicy': MockDTypePolicy  # Register the mock class here
+                'DTypePolicy': MockDTypePolicy  # Pass classes directly here
             },
             compile=False 
         )
@@ -465,6 +467,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
