@@ -330,7 +330,7 @@ def eeg_page():
             top_conf=preds[top_idx]
             
             with col_graph:
-                st.line_chart(processed[:100, 0], height=450)
+                st.line_chart(processed[:100, 0], height=490)
                 
             with col_pred:
                 st.metric("Detected", top_emotion, f"{top_conf*100:.1f}%")
@@ -470,6 +470,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
