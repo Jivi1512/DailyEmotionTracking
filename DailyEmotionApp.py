@@ -190,7 +190,7 @@ def load_eeg_model():
     import zipfile
     import tempfile
     
-    model_path = "best_eeg_model.keras"
+    model_path = "best_eeg_model_v3.keras"
     
     if not os.path.exists(model_path):
         st.warning("Model file not found")
@@ -436,3 +436,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
