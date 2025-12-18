@@ -255,9 +255,13 @@ def load_eeg_model():
 
     try:
         return tf.keras.models.load_model(
-            model_path, custom_objects={'InputLayer': SafeInputLayer, 'DTypePolicy': MockDTypePolicy}, compile=False
+            model_path, 
+            custom_objects={'InputLayer': SafeInputLayer, 'DTypePolicy': MockDTypePolicy}, 
+            compile=False
         ), True
-    except: return DummyModel(output_dim=7), False
+    except Exception as e: 
+        st.error(f"REAL ERROR: {e}")  # <--- Add this line to see the error on screen
+        return DummyModel(output_dim=7), False
 
 def eeg_page():
     st.title("EEG Analysis")
@@ -443,4 +447,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
