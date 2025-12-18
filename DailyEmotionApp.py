@@ -219,67 +219,91 @@ def chatbot_page():
                 st.error(f"Error: {e}")
 
 class DummyModel:
-    def __init__(self, output_dim=3): self.output_dim=output_dim
+    def __init__(self, output_dim=7):
+        self.output_dim = output_dim
+    
     def predict(self, input_data, verbose=0):
         return np.random.dirichlet(np.ones(self.output_dim), size=input_data.shape[0])
 
 class SafeInputLayer(tf.keras.layers.InputLayer):
     def __init__(self, **kwargs):
-        if 'batch_shape' in kwargs: kwargs['batch_input_shape']=kwargs.pop('batch_shape')
+        if 'batch_shape' in kwargs:
+            kwargs['batch_input_shape'] = kwargs.pop('batch_shape')
         super().__init__(**kwargs)
-    def get_config(self): return super().get_config()
+    
+    def get_config(self):
+        return super().get_config()
 
 class MockDTypePolicy:
-    def __init__(self, name="float32", **kwargs): self._name=name
-    def get_config(self): return {"name": self._name}
+    def __init__(self, name="float32", **kwargs):
+        self._name = name
+    
+    def get_config(self):
+        return {"name": self._name}
+    
     @classmethod
-    def from_config(cls, config): return cls(**config)
+    def from_config(cls, config):
+        return cls(**config)
 
 def robust_bandpass_filter(signal, fs=200):
-    b, a=butter(4, [4.0/100, 45.0/100], btype='band')
+    b, a = butter(4, [4.0/100, 45.0/100], btype='band')
     return filtfilt(b, a, signal, axis=0)
 
 @st.cache_resource
 def load_eeg_model():
-    model_path="best_eeg_model.keras"
-    url="https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
+    model_path = "best_eeg_model.keras"
+    url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
     
     if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
         with st.spinner("Downloading EEG Model..."):
             try:
-                r=requests.get(url, stream=True)
-                if r.status_code == 200:
-                    with open(model_path, 'wb') as f:
-                        for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
-            except: pass
-
+                r = requests.get(url, stream=True, timeout=30)
+                r.raise_for_status()
+                with open(model_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+            except Exception as e:
+                st.error(f"Download failed: {str(e)}")
+                return DummyModel(output_dim=7), False
+    
     try:
-        return tf.keras.models.load_model(
-            model_path, custom_objects={'InputLayer': SafeInputLayer, 'DTypePolicy': MockDTypePolicy}, compile=False
-        ), True
-    except: return DummyModel(output_dim=7), False
+        custom_objects = {
+            'InputLayer': SafeInputLayer,
+            'DTypePolicy': MockDTypePolicy
+        }
+        model = tf.keras.models.load_model(
+            model_path,
+            custom_objects=custom_objects,
+            compile=False
+        )
+        return model, True
+    except Exception as e:
+        st.error(f"Model loading failed: {str(e)}")
+        return DummyModel(output_dim=7), False
 
 def eeg_page():
     st.title("EEG Analysis")
     st.caption("Multichannel EEG Signal Processing")
     
-    model, is_real=load_eeg_model()
-    if not is_real: st.warning("Using Simulation Mode")
+    model, is_real = load_eeg_model()
+    if not is_real:
+        st.warning("Using Simulation Mode")
     
     if st.button("Start EEG Scan"):
-        col1, col2=st.columns([2, 1])
-        status=st.empty()
-        bar=st.progress(0)
-        emotions=['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
+        col1, col2 = st.columns([2, 1])
+        status = st.empty()
+        bar = st.progress(0)
+        emotions = ['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         
         for i in range(10):
-            raw=np.random.normal(0, 1, (800, 62))
-            proc=robust_bandpass_filter(raw)
-            proc=(proc - np.mean(proc)) / (np.std(proc) + 1e-6)
-            input_batch=np.expand_dims(proc, axis=0)
+            raw = np.random.normal(0, 1, (800, 62))
+            proc = robust_bandpass_filter(raw)
+            proc = (proc - np.mean(proc)) / (np.std(proc) + 1e-6)
+            input_batch = np.expand_dims(proc, axis=0)
             
-            preds=model.predict(input_batch, verbose=0)[0]
-            top_idx=np.argmax(preds)
+            preds = model.predict(input_batch, verbose=0)[0]
+            top_idx = np.argmax(preds)
             
             with col1:
                 st.line_chart(proc[:100, 0], height=475)
@@ -291,7 +315,6 @@ def eeg_page():
             bar.progress((i+1)*10)
             time.sleep(0.5)
         status.success("Complete")
-
 @st.cache_resource
 def load_ecg_model():
     model_path="wesad_cnn_lstm_model.keras"
@@ -443,4 +466,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
