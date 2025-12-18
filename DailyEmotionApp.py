@@ -1,99 +1,149 @@
-import streamlit as st
-import pandas as pd
+import os
 import cv2
-import numpy as np
-from PIL import Image
-from fer import FER
-import google.generativeai as genai
-from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
-import plotly.express as px
-import tensorflow as tf
-from scipy.signal import butter, filtfilt
 import time
+import requests
+import numpy as np
+import pandas as pd
+from fer import FER
+from PIL import Image
+import streamlit as st
+import tensorflow as tf
+import plotly.express as px
+from datetime import datetime
+import google.generativeai as genai
+from scipy.signal import butter, filtfilt
+from streamlit_gsheets import GSheetsConnection
 
-st.set_page_config(page_title="EmoTrack AI", layout="wide")
+# --- PAGE CONFIGURATION & STYLING ---
+st.set_page_config(page_title="EmoTrack AI", layout="wide", page_icon="❤️")
 
-SHEET_MAPPING={'users': 'UserDB', 'data': 'DataDB'}
+# Custom CSS for aesthetic improvements
+st.markdown("""
+    <style>
+    /* Button Styling */
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #f8f9fa;
+        color: #31333F;
+        font-weight: 600;
+        border: 1px solid #dee2e6;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #ff4b4b;
+        color: white;
+        border-color: #ff4b4b;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    /* Card Styling */
+    .metric-card {
+        background-color: #ffffff;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        text-align: center;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 10px;
+    }
+    /* Headers */
+    h1 { color: #1e293b; }
+    div.block-container { padding-top: 2rem; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- GOOGLE SHEETS CONNECTION ---
+SHEET_MAPPING = {'users': 'UserDB', 'data': 'DataDB'}
 
 def get_connector():
     return st.connection("gsheets", type=GSheetsConnection)
 
 def load_data(data_type):
-    conn=get_connector()
-    worksheet_name=SHEET_MAPPING.get(data_type)
+    conn = get_connector()
+    worksheet_name = SHEET_MAPPING.get(data_type)
     try:
-        df=conn.read(worksheet=worksheet_name, ttl=0)
+        df = conn.read(worksheet=worksheet_name, ttl=0)
         if data_type == 'users':
             if df.empty: return {}
-            df=df.set_index("username")
+            df = df.drop_duplicates(subset=['username'])
+            df = df.set_index("username")
             return df.to_dict(orient="index")
         elif data_type == 'data':
             if df.empty: return {}
-            grouped=df.groupby("username")
-            result={}
+            grouped = df.groupby("username")
+            result = {}
             for user, group in grouped:
-                records=group.drop(columns=["username"]).to_dict(orient="records")
-                result[user]=records
+                records = group.drop(columns=["username"]).to_dict(orient="records")
+                result[user] = records
             return result
     except Exception:
         return {}
 
 def save_data(data, data_type):
-    conn=get_connector()
-    worksheet_name=SHEET_MAPPING.get(data_type)
+    conn = get_connector()
+    worksheet_name = SHEET_MAPPING.get(data_type)
     if data_type == 'users':
-        df=pd.DataFrame.from_dict(data, orient='index')
-        df.index.name='username'
+        df = pd.DataFrame.from_dict(data, orient='index')
+        df.index.name = 'username'
         df.reset_index(inplace=True)
         conn.update(worksheet=worksheet_name, data=df)
     elif data_type == 'data':
-        all_records=[]
+        all_records = []
         for user, entries in data.items():
             for entry in entries:
-                entry['username']=user
+                entry['username'] = user
                 all_records.append(entry)
-        df=pd.DataFrame(all_records)
+        df = pd.DataFrame(all_records)
         conn.update(worksheet=worksheet_name, data=df)
 
-USER_DB='users'
-DATA_DB='data'
+USER_DB = 'users'
+DATA_DB = 'data'
 
+# --- GEMINI AI ---
 def init_gemini(api_key):
     genai.configure(api_key=api_key)
     return genai.GenerativeModel('gemini-2.5-flash')
 
+# --- AUTH PAGES ---
 def login_page():
-    st.title("Login")
-    username=st.text_input("Username")
-    password=st.text_input("Password", type="password")
-    if st.button("Login"):
-        users=load_data(USER_DB)
-        if username in users and str(users[username]['password']) == password:
-            st.session_state['logged_in']=True
-            st.session_state['username']=username
-            st.session_state['user_info']=users[username]
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        st.title("Login")
+        st.markdown("Welcome back! Please enter your credentials.")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            users = load_data(USER_DB)
+            if username in users and str(users[username]['password']) == password:
+                st.session_state['logged_in'] = True
+                st.session_state['username'] = username
+                st.session_state['user_info'] = users[username]
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
 
 def signup_page():
-    st.title("Sign Up")
-    new_user=st.text_input("Username")
-    new_pass=st.text_input("Password", type="password")
-    st.markdown("---")
-    name=st.text_input("Full Name")
-    age=st.number_input("Age", min_value=1)
-    occupation=st.text_input("Occupation")
-    mood=st.selectbox("Current Mood", ["Happy", "Sad", "Anxious", "Neutral", "Stressed"])
-    health=st.text_area("Health Conditions")
+    st.title("📝 Sign Up")
+    col1, col2 = st.columns(2)
+    with col1:
+        new_user = st.text_input("Username")
+        new_pass = st.text_input("Password", type="password")
+        name = st.text_input("Full Name")
+    with col2:
+        age = st.number_input("Age", min_value=1)
+        occupation = st.text_input("Occupation")
+        mood = st.selectbox("Current Mood", ["Happy", "Sad", "Anxious", "Neutral", "Stressed"])
+    
+    health = st.text_area("Health Conditions")
     
     if st.button("Create Account"):
-        users=load_data(USER_DB)
+        users = load_data(USER_DB)
         if new_user in users:
             st.error("User exists")
         else:
-            users[new_user]={
+            users[new_user] = {
                 'password': new_pass, 'name': name, 'age': age,
                 'occupation': occupation, 'base_mood': mood,
                 'health': health, 'joined': str(datetime.now())
@@ -101,377 +151,339 @@ def signup_page():
             save_data(users, USER_DB)
             st.success("Created! Go to Login.")
 
+# --- CORE FEATURES ---
+
 def face_detection_page():
-    st.title("Real-Time Emotion Detection")
-    st.write(f"User: {st.session_state['username']}")
-    img_file_buffer=st.camera_input("Capture")
+    st.title("📸 Real-Time Emotion Detection")
+    st.caption("Analyze facial expressions using computer vision.")
+    img_file_buffer = st.camera_input("Capture Image")
     
     if img_file_buffer:
-        image=Image.open(img_file_buffer)
-        img_array=np.array(image)
-        detector=FER(mtcnn=True)
+        image = Image.open(img_file_buffer)
+        img_array = np.array(image)
+        detector = FER(mtcnn=True)
         try:
-            emotion, score=detector.top_emotion(img_array)
-            st.image(image)
-            st.write(f"Emotion: {str(emotion).upper()} ({score*100:.1f}%)")
-            
-            if st.button("Save"):
-                all_data=load_data(DATA_DB)
-                user_data=all_data.get(st.session_state['username'], [])
-                user_data.append({
-                    "date": str(datetime.now()),
-                    "type": "face_scan",
-                    "emotion": emotion,
-                    "score": score,
-                    "summary": "N/A"
-                })
-                all_data[st.session_state['username']]=user_data
-                save_data(all_data, DATA_DB)
-                st.success("Saved")
+            result = detector.top_emotion(img_array)
+            if result:
+                emotion, score = result
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(image, caption="Captured", use_column_width=True)
+                with col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <h3>Detected Emotion</h3>
+                        <h2 style="color: #ff4b4b;">{str(emotion).upper()}</h2>
+                        <p>Confidence: {score*100:.1f}%</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                if st.button("Save to History"):
+                    all_data = load_data(DATA_DB)
+                    user_data = all_data.get(st.session_state['username'], [])
+                    user_data.append({
+                        "date": str(datetime.now()), "type": "face_scan",
+                        "emotion": emotion, "score": score, "summary": "N/A"
+                    })
+                    all_data[st.session_state['username']] = user_data
+                    save_data(all_data, DATA_DB)
+                    st.success("Entry Saved!")
+            else:
+                st.warning("No face detected.")
         except Exception as e:
             st.error(f"Error: {e}")
 
 def chatbot_page():
     st.title("AI Therapist")
-    st.write(f"Hi {st.session_state['username']}! How was your day today?")
-    api_key=st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        api_key=st.text_input("API Key", type="password")
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key: api_key = st.text_input("API Key", type="password")
     
     if api_key:
-        model=init_gemini(api_key)
-        if "messages" not in st.session_state:
-            st.session_state.messages=[]
+        model = init_gemini(api_key)
+        if "messages" not in st.session_state: st.session_state.messages = []
 
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).markdown(msg["content"])
 
-        if prompt := st.chat_input("Type here..."):
+        if prompt := st.chat_input("How do you feel?"):
             st.chat_message("user").markdown(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
             
-            user_info=st.session_state['user_info']
-            context=f"Role: Therapist. Client: {user_info['name']}, Age: {user_info['age']}."
-            full_prompt=f"{context}\nUser: {prompt}"
+            user_info = st.session_state['user_info']
+            full_prompt = f"Role: Therapist. Client: {user_info['name']}. User: {prompt}"
             
             try:
-                response=model.generate_content(full_prompt)
-                with st.chat_message("assistant"):
-                    st.markdown(response.text)
+                response = model.generate_content(full_prompt)
+                st.chat_message("assistant").markdown(response.text)
                 st.session_state.messages.append({"role": "assistant", "content": response.text})
                 
-                all_data=load_data(DATA_DB)
-                user_data=all_data.get(st.session_state['username'], [])
+                all_data = load_data(DATA_DB)
+                user_data = all_data.get(st.session_state['username'], [])
                 user_data.append({
-                    "date": str(datetime.now()),
-                    "type": "chat_log",
-                    "emotion": "N/A", "score": 0,
-                    "summary": prompt[:100]
+                    "date": str(datetime.now()), "type": "chat_log",
+                    "emotion": "N/A", "score": 0, "summary": prompt[:100]
                 })
-                all_data[st.session_state['username']]=user_data
+                all_data[st.session_state['username']] = user_data
                 save_data(all_data, DATA_DB)
             except Exception as e:
-                st.error(f"API Error: {e}")
+                st.error(f"Error: {e}")
 
-def robust_bandpass_filter(signal, lowcut=4.0, highcut=45.0, fs=200, order=4):
-    nyquist=0.5 * fs
-    low=lowcut / nyquist
-    high=highcut / nyquist
-    b, a=butter(order, [low, high], btype='band')
+# --- MODEL LOADING HELPERS ---
+
+class DummyModel:
+    def __init__(self, output_dim=3): self.output_dim = output_dim
+    def predict(self, input_data, verbose=0):
+        # Returns random probabilities summing to 1
+        return np.random.dirichlet(np.ones(self.output_dim), size=input_data.shape[0])
+
+class SafeInputLayer(tf.keras.layers.InputLayer):
+    def __init__(self, **kwargs):
+        if 'batch_shape' in kwargs: kwargs['batch_input_shape'] = kwargs.pop('batch_shape')
+        super().__init__(**kwargs)
+    def get_config(self): return super().get_config()
+
+class MockDTypePolicy:
+    def __init__(self, name="float32", **kwargs): self._name = name
+    def get_config(self): return {"name": self._name}
+    @classmethod
+    def from_config(cls, config): return cls(**config)
+
+def robust_bandpass_filter(signal, fs=200):
+    b, a = butter(4, [4.0/100, 45.0/100], btype='band')
     return filtfilt(b, a, signal, axis=0)
+
+# --- EEG SECTION ---
 
 @st.cache_resource
 def load_eeg_model():
-    import os
-    import tensorflow as tf
-    from tensorflow import keras
-    import h5py
-    import json
-    import zipfile
-    import tempfile
-    
     model_path = "best_eeg_model.keras"
+    url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
     
-    if not os.path.exists(model_path):
-        st.warning("Model file not found")
-        return None
-    
+    if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
+        with st.spinner("Downloading EEG Model..."):
+            try:
+                r = requests.get(url, stream=True)
+                if r.status_code == 200:
+                    with open(model_path, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+            except: pass
+
     try:
-        st.write("Attempting to extract model weights and rebuild architecture...")
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            extract_path = os.path.join(tmpdir, "model")
-            
-            with zipfile.ZipFile(model_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_path)
-            
-            config_path = os.path.join(extract_path, "config.json")
-            weights_path = os.path.join(extract_path, "model.weights.h5")
-            
-            if not os.path.exists(config_path):
-                raise Exception("Config file not found in model archive")
-            
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            
-            st.write("Building compatible model architecture...")
-            
-            model = keras.Sequential()
-            model.add(keras.layers.Input(shape=(800, 62)))
-            
-            for layer_config in config['config']['layers'][1:]:
-                layer_class = layer_config['class_name']
-                layer_cfg = layer_config['config']
-                
-                if layer_class == 'Conv1D':
-                    model.add(keras.layers.Conv1D(
-                        filters=layer_cfg.get('filters', 64),
-                        kernel_size=layer_cfg.get('kernel_size', [3])[0],
-                        activation=layer_cfg.get('activation', 'relu'),
-                        padding=layer_cfg.get('padding', 'valid')
-                    ))
-                elif layer_class == 'MaxPooling1D':
-                    model.add(keras.layers.MaxPooling1D(
-                        pool_size=layer_cfg.get('pool_size', [2])[0]
-                    ))
-                elif layer_class == 'LSTM':
-                    model.add(keras.layers.LSTM(
-                        units=layer_cfg.get('units', 128),
-                        return_sequences=layer_cfg.get('return_sequences', False)
-                    ))
-                elif layer_class == 'Dropout':
-                    model.add(keras.layers.Dropout(
-                        rate=layer_cfg.get('rate', 0.5)
-                    ))
-                elif layer_class == 'Dense':
-                    model.add(keras.layers.Dense(
-                        units=layer_cfg.get('units', 7),
-                        activation=layer_cfg.get('activation', None)
-                    ))
-                elif layer_class == 'Activation':
-                    model.add(keras.layers.Activation(
-                        layer_cfg.get('activation', 'softmax')
-                    ))
-            
-            if os.path.exists(weights_path):
-                st.write("Loading weights...")
-                try:
-                    model.load_weights(weights_path)
-                    st.success("Model rebuilt and weights loaded successfully!")
-                    return model
-                except Exception as e:
-                    st.warning(f"Weight loading failed: {str(e)[:100]}")
-            else:
-                st.warning("Weights file not found, using random initialization")
-            
-            return model
-            
-    except Exception as e:
-        st.error(f"Model rebuild failed: {str(e)}")
-        st.write("Attempting fallback: building default CNN-LSTM architecture...")
-        
-        try:
-            model = keras.Sequential([
-                keras.layers.Input(shape=(800, 62)),
-                keras.layers.Conv1D(64, 3, activation='relu', padding='same'),
-                keras.layers.MaxPooling1D(2),
-                keras.layers.Conv1D(128, 3, activation='relu', padding='same'),
-                keras.layers.MaxPooling1D(2),
-                keras.layers.LSTM(128, return_sequences=False),
-                keras.layers.Dropout(0.5),
-                keras.layers.Dense(64, activation='relu'),
-                keras.layers.Dropout(0.3),
-                keras.layers.Dense(7, activation='softmax')
-            ])
-            st.success("Using default CNN-LSTM architecture (no pretrained weights)")
-            return model
-        except Exception as e2:
-            st.error(f"Fallback failed: {str(e2)}")
-    
-    return None
+        return tf.keras.models.load_model(
+            model_path, custom_objects={'InputLayer': SafeInputLayer, 'DTypePolicy': MockDTypePolicy}, compile=False
+        ), True
+    except: return DummyModel(output_dim=7), False
 
 def eeg_page():
-    st.title("EEG Emotion Recognition")
+    st.title("EEG Analysis")
+    st.caption("Multichannel EEG Signal Processing")
     
-    with st.expander("Model Loading Status", expanded=False):
-        model = load_eeg_model()
+    model, is_real = load_eeg_model()
+    if not is_real: st.warning("Using Simulation Mode")
     
-    if model is None:
-        model = load_eeg_model()
-    
-    if not model:
-        st.info("Running in demo mode with simulated predictions.")
-    else:
-        st.success("Model ready! Input shape: (800, 62)")
-    
-    if st.button("Start Live Simulation"):
-        col_graph, col_pred=st.columns([2, 1])
-        status=st.empty()
-        bar=st.progress(0)
-        
-        emotion_labels=['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
+    if st.button("Start EEG Scan"):
+        col1, col2 = st.columns([2, 1])
+        status = st.empty()
+        bar = st.progress(0)
+        emotions = ['Anger', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         
         for i in range(10):
-            raw_signal=np.random.normal(0, 1, (800, 62))
+            raw = np.random.normal(0, 1, (800, 62))
+            proc = robust_bandpass_filter(raw)
+            proc = (proc - np.mean(proc)) / (np.std(proc) + 1e-6)
+            input_batch = np.expand_dims(proc, axis=0)
             
-            filtered=robust_bandpass_filter(raw_signal)
-            processed=(filtered - np.mean(filtered)) / (np.std(filtered) + 1e-6)
+            preds = model.predict(input_batch, verbose=0)[0]
+            top_idx = np.argmax(preds)
             
-            input_batch=np.expand_dims(processed, axis=0)
+            with col1:
+                st.line_chart(proc[:100, 0], height=250)
+            with col2:
+                st.metric("Detected", emotions[top_idx], f"{preds[top_idx]*100:.1f}%")
+                st.bar_chart(pd.DataFrame({"Prob": preds}, index=emotions))
             
-            if model:
-                preds=model.predict(input_batch, verbose=0)[0]
-            else:
-                preds=np.random.dirichlet(np.ones(7))
-            
-            top_idx=np.argmax(preds)
-            top_emotion=emotion_labels[top_idx]
-            top_conf=preds[top_idx]
-            
-            with col_graph:
-                st.line_chart(processed[:100, 0], height=475)
-                
-            with col_pred:
-                st.metric("Detected", top_emotion, f"{top_conf*100:.1f}%")
-                df_probs=pd.DataFrame({"Emotion": emotion_labels, "Prob": preds})
-                st.bar_chart(df_probs.set_index("Emotion"))
-
             status.text(f"Processing batch {i+1}/10...")
-            bar.progress((i + 1) * 10)
-            time.sleep(0.5) 
-            
-        status.success("Session Complete")
+            bar.progress((i+1)*10)
+            time.sleep(0.5)
+        status.success("Complete")
+
+# --- ECG SECTION (UPDATED) ---
+
+@st.cache_resource
+def load_ecg_model():
+    model_path = "wesad_cnn_lstm_model.keras"
+    # IMPORTANT: Update this URL to point to your actual repository file
+    url = "https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/wesad_cnn_lstm_model.keras"
+    
+    # Download logic
+    if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
+        with st.spinner("Downloading WESAD ECG Model..."):
+            try:
+                r = requests.get(url, stream=True)
+                if r.status_code == 200:
+                    with open(model_path, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+            except: pass
+
+    try:
+        # Load WESAD model (3 classes: Baseline, Amusement, Neutral/Stress)
+        return tf.keras.models.load_model(
+            model_path, custom_objects={'InputLayer': SafeInputLayer, 'DTypePolicy': MockDTypePolicy}, compile=False
+        ), True
+    except: 
+        # Fallback to Dummy Model with 3 output classes
+        return DummyModel(output_dim=3), False
 
 def ecg_page():
-    st.title("ECG Emotion Recognition")
-    st.info("ECG tracking feature coming soon. This will monitor heart rate variability to detect stress and emotional states.")
+    st.title("ECG Emotion Monitor")
+    st.caption("Detects **Baseline**, **Amusement**, or **Neutral** states using CNN-LSTM on ECG signals.")
     
-    if st.button("Start ECG Simulation"):
-        progress_bar=st.progress(0)
-        status_text=st.empty()
-        chart_placeholder=st.empty()
+
+    model, is_real = load_ecg_model()
+    
+    if is_real:
+        st.success("WESAD CNN-LSTM Model Loaded")
+    else:
+        st.warning("Simulation Mode (Real model failed to load)")
+
+    if st.button("Start Live ECG Analysis"):
+        col1, col2 = st.columns([3, 1])
+        status = st.empty()
+        bar = st.progress(0)
         
-        for i in range(100):
-            ecg_signal=np.sin(np.linspace(0, 4*np.pi, 200)) + np.random.normal(0, 0.1, 200)
-            chart_placeholder.line_chart(ecg_signal)
-            status_text.text(f"Recording: {i+1}%")
-            progress_bar.progress(i + 1)
-            time.sleep(0.05)
+        # WESAD specific labels
+        labels = ['Baseline', 'Amusement', 'Neutral']
         
-        st.success("ECG recording complete")
-        st.metric("Average Heart Rate", "72 BPM")
-        st.metric("Stress Level", "Low")
+        # Simulation Loop
+        for i in range(20):
+            # 1. Generate Fake ECG Signal (Shape: 1000 timesteps, 1 channel)
+            t = np.linspace(0, 10, 1000)
+            # Simulating PQRST complex-like wave
+            ecg_wave = np.sin(t*3) + 0.5 * np.sin(t*12) + np.random.normal(0, 0.2, 1000)
+            
+            # Normalize
+            ecg_proc = (ecg_wave - np.mean(ecg_wave)) / np.std(ecg_wave)
+            input_batch = ecg_proc.reshape(1, 1000, 1) # Reshape for CNN-LSTM
+            
+            # 2. Predict
+            preds = model.predict(input_batch, verbose=0)[0]
+            top_idx = np.argmax(preds)
+            confidence = preds[top_idx]
+            
+            # 3. Visualize
+            with col1:
+                # Plot a sliding window
+                st.line_chart(ecg_wave[:200], height=250)
+            
+            with col2:
+                st.metric("State", labels[top_idx], f"{confidence*100:.1f}%")
+                st.bar_chart(pd.DataFrame({"Prob": preds}, index=labels))
+                
+            status.text(f"Analyzing Segment {i+1}/20...")
+            bar.progress((i+1)*5)
+            time.sleep(0.3)
+            
+        status.success("ECG Session Complete")
+
+# --- DASHBOARD ---
 
 def dashboard_page():
-    user_info=st.session_state['user_info']
-    st.title(f"Hi, {user_info['name']}!")
-    st.markdown(f"**Occupation:** {user_info.get('occupation', 'N/A')} | **Base Mood:** {user_info.get('base_mood', 'Neutral')}")
-    st.divider()
-
-    all_data=load_data(DATA_DB)
-    history=all_data.get(st.session_state['username'], [])
+    user = st.session_state['user_info']
     
-    col1, col2, col3=st.columns(3)
+    # 1. Hero Section (Aesthetic Upgrade)
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 15px; color: white; margin-bottom: 20px;">
+        <h1>Hi, {user['name']}!</h1>
+        <p style="font-size: 1.2em; opacity: 0.9;">Ready to track your emotional well-being today?</p>
+        <div style="margin-top: 15px; display: flex; gap: 20px;">
+            <span><b>Occupation:</b> {user.get('occupation', 'N/A')}</span>
+            <span><b>Base Mood:</b> {user.get('base_mood', 'Neutral')}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    total_entries=len(history)
-    last_checkin=history[-1]['date'][:10] if history else "No Data"
+    all_data = load_data(DATA_DB)
+    history = all_data.get(st.session_state['username'], [])
     
-    if history:
-        df=pd.DataFrame(history)
-        df['date']=pd.to_datetime(df['date'])
-        
-        if 'emotion' in df.columns and not df['emotion'].empty:
-            mode_result=df['emotion'].mode()
-            if not mode_result.empty:
-                top_emotion=mode_result[0]
-            else:
-                top_emotion="N/A"
-        else:
-            top_emotion="N/A"
-    else:
-        top_emotion="N/A"
-        df=pd.DataFrame()
+    # 2. Key Metrics
+    col1, col2, col3 = st.columns(3)
+    
+    total = len(history)
+    last = history[-1]['date'][:10] if history else "N/A"
+    
+    # Calculate dominant emotion
+    df = pd.DataFrame(history)
+    dom_emo = "N/A"
+    if not df.empty and 'emotion' in df.columns:
+        valid = df[df['emotion'] != "N/A"]['emotion']
+        if not valid.empty: dom_emo = valid.mode()[0]
 
     with col1:
-        st.metric("Total Check-ins", total_entries)
+        st.markdown(f"<div class='metric-card'><h3>Total Logs</h3><h2>{total}</h2></div>", unsafe_allow_html=True)
     with col2:
-        st.metric("Last Check-in", last_checkin)
+        st.markdown(f"<div class='metric-card'><h3>Last Activity</h3><h2>{last}</h2></div>", unsafe_allow_html=True)
     with col3:
-        st.metric("Dominant Emotion", str(top_emotion).title())
+        st.markdown(f"<div class='metric-card'><h3>Dominant Mood</h3><h2>{str(dom_emo).title()}</h2></div>", unsafe_allow_html=True)
 
-    if not df.empty and 'score' in df.columns and 'emotion' in df.columns:
-        st.subheader("Your Emotional Trends")
-        
-        tab1, tab2=st.tabs(["Timeline", "Distribution"])
-        
-        with tab1:
-            fig_line=px.line(
-                df, 
-                x='date', 
-                y='score', 
-                color='emotion', 
-                markers=True,
-                title="Emotion Intensity Over Time",
-                labels={"score": "Confidence Score", "date": "Date"}
-            )
-            st.plotly_chart(fig_line, width='stretch')
-            
-        with tab2:
-            fig_pie=px.pie(
-                df, 
-                names='emotion', 
-                title="Emotion Distribution",
-                hole=0.4
-            )
-            st.plotly_chart(fig_pie, width='stretch')
+    st.divider()
 
-    with st.expander("View Personal Details"):
-        safe_info=user_info.copy()
-        if 'password' in safe_info:
-            del safe_info['password']
-        df_info=pd.DataFrame(safe_info.items(), columns=['Field', 'Value'])
-        df_info['Value']=df_info['Value'].astype(str)
-        st.table(df_info)
+    # 3. Analytics
+    if not df.empty and 'score' in df.columns:
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            st.subheader("Emotion Intensity Trend")
+            fig = px.line(df, x='date', y='score', color='emotion', markers=True, template="plotly_white")
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
+        with c2:
+            st.subheader("Mood Distribution")
+            fig2 = px.pie(df, names='emotion', hole=0.5, template="plotly_white")
+            fig2.update_layout(height=350, showlegend=False)
+            st.plotly_chart(fig2, use_container_width=True)
+
+# --- MAIN CONTROLLER ---
 
 def main():
-    if 'logged_in' not in st.session_state:
-        st.session_state['logged_in']=False
+    if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 
     if not st.session_state['logged_in']:
-        menu=st.sidebar.radio("Menu", ["Login", "Sign Up"])
+        menu = st.sidebar.radio("Navigation", ["Login", "Sign Up"])
         if menu == "Login": login_page()
         else: signup_page()
     else:
-        with st.sidebar:
-            st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=100)
-            st.title(f"Welcome, {st.session_state['user_info']['name']}")
-            st.write("---")
-            menu=st.radio("Menu", ["Dashboard", "AI Therapist", "Face Scan", "EEG", "ECG", "Trends"])
+        # --- TOP NAVIGATION BAR (Replaces Sidebar) ---
+        with st.container():
+            col_logo, col_nav, col_logout = st.columns([1, 6, 1])
             
-            st.write("---")
-            if st.button("Logout"):
-                st.session_state['logged_in']=False
-                st.rerun()
+            with col_logo:
+                st.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=50)
+            
+            with col_nav:
+                # Create a horizontal menu using columns
+                if "page" not in st.session_state: st.session_state.page = "Dashboard"
+                
+                b1, b2, b3, b4, b5 = st.columns(5)
+                if b1.button("Dashboard"): st.session_state.page = "Dashboard"
+                if b2.button("AI Chat"): st.session_state.page = "Chat"
+                if b3.button("Face"): st.session_state.page = "Face"
+                if b4.button("EEG"): st.session_state.page = "EEG"
+                if b5.button("ECG"): st.session_state.page = "ECG"
+            
+            with col_logout:
+                if st.button("Logout"):
+                    st.session_state['logged_in'] = False
+                    st.rerun()
+            
+            st.divider()
 
-        if menu == "Dashboard":
-            dashboard_page()
-        elif menu == "AI Therapist":
-            chatbot_page()
-        elif menu == "Face Scan":
-            face_detection_page()
-        elif menu == "EEG":
-            eeg_page()
-        elif menu == "ECG":
-            ecg_page()
-        elif menu == "Trends":
-            st.title("Advanced Analytics")
-            st.info("Visit the Dashboard for your current summary graphs.")
+        # --- PAGE ROUTING ---
+        page = st.session_state.page
+        
+        if page == "Dashboard": dashboard_page()
+        elif page == "Chat": chatbot_page()
+        elif page == "Face": face_detection_page()
+        elif page == "EEG": eeg_page()
+        elif page == "ECG": ecg_page()
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
