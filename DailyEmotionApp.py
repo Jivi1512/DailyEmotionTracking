@@ -282,7 +282,7 @@ def eeg_page():
             top_idx=np.argmax(preds)
             
             with col1:
-                st.line_chart(proc[:100, 0], height=250)
+                st.line_chart(proc[:100, 0], height=470)
             with col2:
                 st.metric("Detected", emotions[top_idx], f"{preds[top_idx]*100:.1f}%")
                 st.bar_chart(pd.DataFrame({"Prob": preds}, index=emotions))
@@ -443,3 +443,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
