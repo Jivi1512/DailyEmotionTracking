@@ -1,18 +1,17 @@
-import os
-import cv2
-import time
-import requests
-import numpy as np
-import pandas as pd
-from fer import FER
-from PIL import Image
 import streamlit as st
-import tensorflow as tf
-import plotly.express as px
-from datetime import datetime
+import pandas as pd
+import numpy as np
+from PIL import Image
+from fer import FER
 import google.generativeai as genai
-from scipy.signal import butter, filtfilt
+from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
+import plotly.express as px
+import tensorflow as tf
+from scipy.signal import butter, filtfilt
+import requests
+import time
+import os
 
 st.set_page_config(page_title="EmoTrack AI", layout="wide")
 
@@ -239,9 +238,11 @@ def robust_bandpass_filter(signal, fs=200):
     b, a=butter(4, [4.0/100, 45.0/100], btype='band')
     return filtfilt(b, a, signal, axis=0)
 
+# Renamed to force cache refresh
 @st.cache_resource
-def load_eeg_model():
+def load_eeg_network():
     model_path="best_eeg_model.keras"
+    # IMPORTANT: Ensure this URL points to YOUR repository
     url="https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/best_eeg_model.keras"
     
     if not os.path.exists(model_path) or os.path.getsize(model_path) < 10000:
@@ -257,15 +258,14 @@ def load_eeg_model():
         return tf.keras.models.load_model(
             model_path, custom_objects={'InputLayer': SafeInputLayer, 'DTypePolicy': MockDTypePolicy}, compile=False
         ), True
-    except Exception as e: 
-        st.error(f"REAL ERROR: {e}")  # <--- Add this line to see the error on screen
-        return DummyModel(output_dim=7),
+    except: return DummyModel(output_dim=7), False
 
 def eeg_page():
     st.title("EEG Analysis")
     st.caption("Multichannel EEG Signal Processing")
     
-    model, is_real=load_eeg_model()
+    # Use the new function name here
+    model, is_real=load_eeg_network()
     if not is_real: st.warning("Using Simulation Mode")
     
     if st.button("Start EEG Scan"):
@@ -284,7 +284,7 @@ def eeg_page():
             top_idx=np.argmax(preds)
             
             with col1:
-                st.line_chart(proc[:100, 0], height=470)
+                st.line_chart(proc[:100, 0], height=250)
             with col2:
                 st.metric("Detected", emotions[top_idx], f"{preds[top_idx]*100:.1f}%")
                 st.bar_chart(pd.DataFrame({"Prob": preds}, index=emotions))
@@ -294,8 +294,9 @@ def eeg_page():
             time.sleep(0.5)
         status.success("Complete")
 
+# Renamed to force cache refresh
 @st.cache_resource
-def load_ecg_model():
+def load_ecg_network():
     model_path="wesad_cnn_lstm_model.keras"
     url="https://raw.githubusercontent.com/Jivi1512/DailyEmotionTracking/main/wesad_cnn_lstm_model.keras"
     
@@ -319,7 +320,8 @@ def ecg_page():
     st.title("ECG Emotion Monitor")
     st.caption("Detects Baseline, Amusement, or Neutral states using CNN-LSTM on ECG signals.")
     
-    model, is_real=load_ecg_model()
+    # Use the new function name here
+    model, is_real=load_ecg_network()
     
     if is_real:
         st.success("WESAD CNN-LSTM Model Loaded")
@@ -445,5 +447,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
