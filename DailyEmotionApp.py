@@ -217,7 +217,6 @@ def chatbot_page():
                 save_data(all_data, DATA_DB)
             except Exception as e:
                 st.error(f"Error: {e}")
-
 class DummyModel:
     def __init__(self, output_dim=7):
         self.output_dim = output_dim
@@ -238,6 +237,16 @@ class MockDTypePolicy:
     def __init__(self, name="float32", **kwargs):
         self._name = name
         self.name = name
+        self._compute_dtype = name
+        self._variable_dtype = name
+    
+    @property
+    def compute_dtype(self):
+        return self._compute_dtype
+    
+    @property
+    def variable_dtype(self):
+        return self._variable_dtype
     
     def get_config(self):
         return {"name": self._name}
@@ -464,6 +473,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
