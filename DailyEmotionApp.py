@@ -237,6 +237,7 @@ class SafeInputLayer(tf.keras.layers.InputLayer):
 class MockDTypePolicy:
     def __init__(self, name="float32", **kwargs):
         self._name = name
+        self.name = name
     
     def get_config(self):
         return {"name": self._name}
@@ -268,15 +269,12 @@ def load_eeg_model():
                 return DummyModel(output_dim=7), False
     
     try:
-        custom_objects = {
+        with tf.keras.utils.custom_object_scope({
             'InputLayer': SafeInputLayer,
-            'DTypePolicy': MockDTypePolicy
-        }
-        model = tf.keras.models.load_model(
-            model_path,
-            custom_objects=custom_objects,
-            compile=False
-        )
+            'DTypePolicy': MockDTypePolicy,
+            'SeparableConv1D': tf.keras.layers.SeparableConv1D
+        }):
+            model = tf.keras.models.load_model(model_path, compile=False)
         return model, True
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
@@ -466,5 +464,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
